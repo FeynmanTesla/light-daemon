@@ -3,10 +3,10 @@ FLAGS = -Wall -Wextra -Werror -g3 -O0
 # -g -O0 allows gdb debugging
 # -Werror converts all warnings to errors
 
-all: clean grive2daemon 
+all: clean daemon 
 
 clean:
-	rm -f grive2daemon
+	rm -f daemon
 
-grive2daemon: grive2daemon.c
-	${CC} ${FLAGS} grive2daemon.c -o grive2daemon
+daemon: daemon.c
+	${CC} ${FLAGS} daemon.c -o daemon
