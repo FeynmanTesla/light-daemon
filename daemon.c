@@ -1,7 +1,7 @@
 /**
- * Daemon program to execute a chosen command in the background at set intervals.
+ * Daemon program to execute a chosen CLI command in the background at set intervals.
  * Made by Thomas Hardern (https://github.com/FeynmanTesla), June 2019.
- * All work in the public domain.
+ * All work is in the public domain.
  */
 
 #include <unistd.h>
@@ -11,84 +11,94 @@
 #include <string.h>
 
 pid_t pid, sid;
+static const int maxCommandLength = 1024;
 
-void debug(char* msg, int toExit) {
-    printf("%s\n", msg);
-    if (toExit == 1) exit(EXIT_FAILURE);
+/**
+ * Print an error message and then exit the application with an exit code signifying an error.
+ * Used for user feedback in arguments format before the main loop since file descriptors are closed before this.
+ * @param msg the error message to print before exiting the application.
+ */
+void errorMessage(char* msg) {
+    fprintf(stderr, "%s\n", msg);
+    exit(EXIT_FAILURE);
 }
 
+/**
+ * The main loop of the daemon. Executes a CLI command at an interval (i.e. time period).
+ * @param command the command to repeatedly execute.
+ * @param interval the time period between each command execution, in microseconds.
+ */
 void loop(char* command, int interval) {
     while (1) { // runs until signal to exit is received
-        system(command);
-        sleep(interval); // wait for a bit before resyncing
+        system(command); // execute the command
+        usleep(interval); // wait for the length of the period between each execution
     }
 }
 
+/**
+ * Build up the command to exeute into a single string from multiple given arguments.
+ * @param argv the given arguments.
+ * @param argc the number of given arguments.
+ * @param startArgIndex the index of the first given argument to be in the command to execute (i.e. being built).
+ */
 char* buildCommand(char** argv, int argc, int startArgIndex) {
-    if (argc - startArgIndex < 1) debug("build command given invalid parameters", 1);
+    if (startArgIndex < 0 || startArgIndex > argc - 1) errorMessage("build command given invalid parameters"); // note argc is already validated in main() before this
+    char* command = (char*) malloc(sizeof(char) * maxCommandLength);
 
-    char command[1024]; //TODO: proper mallocing
     for (int i = startArgIndex; i < argc; i++) { // add each argument to the command string
-        strcat(command, " "); // prepending each argument with a space character
-        strcat(command, argv[i]); // adding each argument relevent to the grieve command
+        if (i != startArgIndex) strcat(command, " "); // prepending each argument with a space character
+        strcat(command, argv[i]); // adding each argument relevent to the command
     }
 
     return command;
 }
 
-void setup(char* command, int period) {
-    // try to fork from parent process to make a new child process
-    pid = fork();
+/**
+ * Preparing to run the daemon. Move to a new process and session to prevent becoming an orphan, etc.
+ * Close file descriptors since the daemon is a background process so we don't want any user I/O.
+ * @param command the command to repeatedly execute.
+ * @param period the time in microseconds between each execution of the command.
+ */
+void init(char* command, int period) {
+    pid = fork(); // try to fork from parent process to make a new child process
 
-    if (pid < 0) debug("couldn't fork", 1); // couldn't fork - fail
-    if (pid > 0) exit(EXIT_SUCCESS); // forking worked but this process is still parent: parent has pid > 0, child has pid of 0
+    if (pid < 0) errorMessage("couldn't fork");
+    if (pid > 0) exit(EXIT_SUCCESS); // forking worked but this process is the parent process: parent has pid > 0, child has pid of 0
     // here pid == 0, so from here we know we are in the child process
-    
-    sid = setsid(); // try to move to new session
-    if (sid < 0) debug("couldn't get new SID", 1); // failed to do so
-    
-    // closing standard fds
-    if (close(STDIN_FILENO) != 0) debug("stdin failed to close", 1);
-    // if (close(STDERR_FILENO) != 0) debug("stderr failed to close", 1); // maybe open this for debugging?
-    if (close(STDOUT_FILENO) != 0) debug("stdout failed to close", 1);
 
-    // build up grive command to repeatedly run from args here
-    
-    
-    debug("command is ", 0);
-    debug(command, 0);
-    debug("\n", 0);
-    
-    loop(command, period); // main daemon loop
+    sid = setsid(); // try to move to new session
+    if (sid < 0) errorMessage("couldn't get new SID"); // failed to do so
+    // from here, we have moved to a new session
+
+    // closing standard fds
+    if (close(STDIN_FILENO) != 0) errorMessage("stdin failed to close");
+    if (close(STDERR_FILENO) != 0) errorMessage("stderr failed to close");
+    if (close(STDOUT_FILENO) != 0) errorMessage("stdout failed to close");
+
+    loop(command, period); // enter the main daemon loop
 }
 
-
+/**
+ * The main method and entry point into the daemon. Valiate and parse the given arguments, build up the command, and start executing it.
+ * @param argc the number of given arguments. Note by convention the first argument is the path to this executable and is always present.
+ * @param argv the given arguments. format: [path to this executable] <dir to execute in (optional)> <syncing time period in microseconds> <the command, as separate args where applicable>.
+ */
 int main(int argc, char** argv) {
-    // args format: [path to this executable] <dir to execute in (optional)> <syncing time period in seconds> <the command, as separate args where applicable>
-    if (argc < 3) debug("fewer than two args", 1); // minimum of 2 actual args - 1st is path to executable by convention
-
-    /*TODO:
-    if first arg is a number then take that as the period; no exe dir given
-    else, try to find a number another along and get a exe dir
-        if there are at least 3 args and the second arg parses as a number 
-            then take first as exe path, second as period, rest as commmand
-            try to move into exe path taken
-        else then fail
-     */
+    if (argc < 3) errorMessage("fewer than two args"); // minimum of 2 actual args - 1st is path to executable by convention
 
     int period = atoi(argv[1]);
-    if (period == 0) { // failed to get period from first arg
-        if (argc > 3 && (period = atoi(argv[2])) != 0) { // if enough args to have exe dir and period parses from 2nd arg
-            if ((chdir(argv[1])) < 0) debug("couldn't change cwd", 1); // try to move into the desired execution directory
-        }
+    int firstCommandArgIndex = 2;
 
-        else debug("args of incorrect format to include an execution directory path", 1);
-    } else { // exe path not given
-
+    if (period == 0) { // failed to get period (an int) from first arg, so assume execution dir is given
+        if (argc < 4) errorMessage("first arg couldn't parse as an int and the number of args is too small to include an execution directory path");
+        period = atoi(argv[2]);
+        if (period == 0) errorMessage("the second argument couldn't parse as an int");
+        if ((chdir(argv[1])) < 0) errorMessage("couldn't change cwd"); // try to move into the desired execution directory
+        firstCommandArgIndex++;
     }
-    
-    // try to go to the local directory where syncing will happen
 
-    
+    char* command = buildCommand(argv, argc, firstCommandArgIndex);
+    init(command, period);
+    free(command);
     return EXIT_SUCCESS;
 }
