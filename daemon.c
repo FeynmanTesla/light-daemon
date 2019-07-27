@@ -81,7 +81,7 @@ void init(char* command, int period) {
 /**
  * The main method and entry point into the daemon. Valiate and parse the given arguments, build up the command, and start executing it.
  * @param argc the number of given arguments. Note by convention the first argument is the path to this executable and is always present.
- * @param argv the given arguments. format: [path to this executable] <dir to execute in (optional)> <syncing time period in microseconds> <the command, as separate args where applicable>.
+ * @param argv the given arguments. format: [path to this executable] <dir to execute in (optional)> <execution time period (interval) in microseconds> <the command to repeatedly execute, as separate args where applicable>.
  */
 int main(int argc, char** argv) {
     if (argc < 3) errorMessage("fewer than two args"); // minimum of 2 actual args - 1st is path to executable by convention
