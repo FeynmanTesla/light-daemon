@@ -10,7 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-pid_t pid, sid;
 static const int maxCommandLength = 1024;
 
 /**
@@ -60,6 +59,7 @@ char* buildCommand(char** argv, int argc, int startArgIndex) {
  * @param period the time in microseconds between each execution of the command.
  */
 void init(char* command, int period) {
+    pid_t pid, sid;
     pid = fork(); // try to fork from parent process to make a new child process
 
     if (pid < 0) errorMessage("couldn't fork");
